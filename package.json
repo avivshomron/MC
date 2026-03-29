@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "open:env": "bash scripts/open-env-local.sh"
   },
   "dependencies": {
     "firebase": "^11.6.0",

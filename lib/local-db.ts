@@ -13,6 +13,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -118,6 +119,18 @@ function mapAnswer(id: string, data: DocumentData): Answer {
   };
 }
 
+/** Firestore client calls can hang indefinitely without a bound; cap wait so auth/UI can recover. */
+const FIRESTORE_READ_MS = 12_000;
+const FIRESTORE_WRITE_MS = 15_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("firestore-timeout")), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function mapNotification(id: string, data: DocumentData): Notification {
   const message =
     typeof data.message === "string" && data.message.length > 0
@@ -135,9 +148,61 @@ function mapNotification(id: string, data: DocumentData): Notification {
 }
 
 export async function fetchUserProfile(uid: string): Promise<UserProfile | null> {
-  const snap = await getDoc(doc(getDb(), "users", uid));
-  if (!snap.exists()) return null;
-  return mapUserProfile(snap.id, snap.data());
+  try {
+    const snap = await withTimeout(getDoc(doc(getDb(), "users", uid)), FIRESTORE_READ_MS);
+    if (!snap.exists()) return null;
+    return mapUserProfile(snap.id, snap.data());
+  } catch {
+    return null;
+  }
+}
+
+/** Default specialty when creating / inferring a profile without Firestore data. */
+const DEFAULT_LOGIN_SPECIALTY: Specialty = "General Internal Medicine";
+
+/**
+ * In-memory profile when Auth succeeded but Firestore is empty or unreachable.
+ * Lets RequireAuth pass; user should still have a Firestore doc (see ensureUserDocumentIfMissing).
+ */
+export function userProfileFromAuth(
+  uid: string,
+  email: string | null | undefined,
+  displayName: string | null | undefined
+): UserProfile | null {
+  if (!email) return null;
+  const local = email.split("@")[0] || "User";
+  return {
+    id: uid,
+    name: (displayName && displayName.trim()) || local,
+    email: email.toLowerCase(),
+    specialty: DEFAULT_LOGIN_SPECIALTY,
+    createdAt: Date.now(),
+    isVerified: false,
+  };
+}
+
+/**
+ * Create `users/{uid}` if missing (allowed by rules when request.auth.uid == uid).
+ * Helps accounts that exist in Auth but lost their Firestore row or hit read timeouts.
+ */
+export async function ensureUserDocumentIfMissing(
+  uid: string,
+  email: string,
+  name: string
+): Promise<void> {
+  const ref = doc(getDb(), "users", uid);
+  const snap = await withTimeout(getDoc(ref), FIRESTORE_READ_MS);
+  if (snap.exists()) return;
+  await withTimeout(
+    setDoc(ref, {
+      name: name.trim() || email.split("@")[0] || "User",
+      email: email.trim().toLowerCase(),
+      specialty: DEFAULT_LOGIN_SPECIALTY,
+      isVerified: false,
+      createdAt: serverTimestamp(),
+    }),
+    FIRESTORE_WRITE_MS
+  );
 }
 
 export async function getUserById(id: string): Promise<UserProfile | null> {
