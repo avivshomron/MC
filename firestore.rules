@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function caseDoc(caseId) {
+      return get(/databases/$(database)/documents/cases/$(caseId)).data;
+    }
+
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      // isVerified must be false on create (default false if key missing in some clients)
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.email is string
+        && request.resource.data.name is string
+        && request.resource.data.specialty is string
+        && request.resource.data.get('isVerified', false) == false;
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.isVerified == resource.data.isVerified;
+    }
+
+    match /cases/{caseId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if request.auth != null
+        && resource.data.createdBy == request.auth.uid;
+    }
+
+    match /answers/{answerId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.createdBy == request.auth.uid;
+
+      allow update: if request.auth != null && (
+        (
+          resource.data.createdBy == request.auth.uid
+          && request.resource.data.caseId == resource.data.caseId
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.specialty == resource.data.specialty
+          && request.resource.data.text == resource.data.text
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.isMostHelpful == resource.data.isMostHelpful
+          && request.resource.data.authorName == resource.data.authorName
+          && request.resource.data.caseCreatedBy == resource.data.caseCreatedBy
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['upvotes', 'votedUserIds'])
+        )
+        ||
+        (
+          caseDoc(resource.data.caseId).createdBy == request.auth.uid
+          && request.resource.data.caseId == resource.data.caseId
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.specialty == resource.data.specialty
+          && request.resource.data.text == resource.data.text
+          && request.resource.data.upvotes == resource.data.upvotes
+          && request.resource.data.votedUserIds == resource.data.votedUserIds
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.authorName == resource.data.authorName
+          && request.resource.data.caseCreatedBy == resource.data.caseCreatedBy
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['isMostHelpful'])
+        )
+      );
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['isRead']);
+      allow create: if request.auth != null
+        && request.resource.data.type == 'new_case'
+        && request.resource.data.isRead == false
+        && request.resource.data.message is string
+        && request.resource.data.userId is string
+        && request.resource.data.caseId is string
+        && request.resource.data.userId != request.auth.uid
+        && exists(/databases/$(database)/documents/cases/$(request.resource.data.caseId))
+        && caseDoc(request.resource.data.caseId).createdBy == request.auth.uid
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.userId))
+        && get(/databases/$(database)/documents/users/$(request.resource.data.userId)).data.specialty
+           == caseDoc(request.resource.data.caseId).specialty;
+    }
+  }
+}

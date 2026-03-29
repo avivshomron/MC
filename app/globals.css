@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+:root {
+  --mc-bg: #f6f8f9;
+  --mc-surface: #ffffff;
+  --mc-border: #e2e8ef;
+  --mc-text: #0f172a;
+  --mc-muted: #64748b;
+  --mc-accent: #0d6b6b;
+  --mc-accent-hover: #095252;
+  --mc-danger: #b91c1c;
+}
+
+body {
+  background: var(--mc-bg);
+  color: var(--mc-text);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}

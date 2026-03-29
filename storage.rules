@@ -1,0 +1,14 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /cases/{caseId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*')
+        && firestore.exists(/databases/(default)/documents/cases/$(caseId))
+        && firestore.get(/databases/(default)/documents/cases/$(caseId)).data.createdBy
+           == request.auth.uid;
+    }
+  }
+}
